@@ -1,1 +1,36 @@
+# plan
 poc-plan.md
+
+# environment
+.env
+.env.*
+!.env.example
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# node / next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# gtfs downloads and other local data
+data/*
+!data/.gitkeep
+
+# editors and os
+.DS_Store
+.idea/
+*.swp
+
+# claude code session settings
+.claude/

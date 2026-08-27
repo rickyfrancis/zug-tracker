@@ -1,0 +1,57 @@
+# Development overrides: hot reload, dev dependencies, and direct access to
+# postgres/redis from the host. Layered on top of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# or simply `make dev`.
+
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  api:
+    build:
+      target: dev
+    command:
+      ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+    volumes:
+      - ./apps/api:/app
+      # Keep the image's virtualenv; the bind mount above would otherwise hide it.
+      - api-venv:/app/.venv
+
+  worker:
+    build:
+      target: dev
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+    volumes:
+      - ./apps/api:/app
+      - api-venv:/app/.venv
+      - ./data:/data
+
+  web:
+    build:
+      target: dev
+    command: ["npm", "run", "dev", "--", "--hostname", "0.0.0.0"]
+    environment:
+      NODE_ENV: development
+      # Uncomment if file watching misses changes (some WSL2 / bind-mount setups).
+      # WATCHPACK_POLLING: "true"
+    volumes:
+      - ./apps/web:/app
+      - web-node-modules:/app/node_modules
+      - web-next-cache:/app/.next
+
+volumes:
+  api-venv:
+  web-node-modules:
+  web-next-cache:
