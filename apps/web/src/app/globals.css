@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+/*
+ * Dark command-center palette. The map is the hero from Phase 5 on, so the
+ * chrome stays near-black and low-contrast; only status colours are allowed to
+ * be loud.
+ */
+:root {
+  --background: #06080c;
+  --surface: #0d1117;
+  --surface-raised: #151b24;
+  --border: #1f2733;
+  --foreground: #e6edf3;
+  --muted: #7d8896;
+
+  --accent: #38bdf8;
+  --status-ok: #22c55e;
+  --status-warn: #f59e0b;
+  --status-error: #ef4444;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-ok: var(--status-ok);
+  --color-warn: var(--status-warn);
+  --color-error: var(--status-error);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+@keyframes pulse-live {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.animate-live {
+  animation: pulse-live 2s ease-in-out infinite;
+}
