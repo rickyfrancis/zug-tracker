@@ -52,6 +52,7 @@ def get_health_service(
         redis,
         heartbeat_key=settings.worker_heartbeat_key,
         heartbeat_ttl_seconds=settings.heartbeat_ttl_seconds,
+        feed_id=settings.gtfs_feed_id,
     )
 
 

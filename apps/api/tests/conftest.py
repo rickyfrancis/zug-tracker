@@ -16,22 +16,41 @@ from app.core.config import Settings
 from app.main import create_app
 
 
+class FakeResult:
+    """The slice of a SQLAlchemy Result the health path actually calls."""
+
+    def __init__(self, value: object = None) -> None:
+        self._value = value
+
+    def scalar_one_or_none(self) -> object:
+        return self._value
+
+
 class FakeSession:
     """Stands in for an AsyncSession.
 
     ``failing`` simulates a refused connection, ``hangs`` a dependency that
-    accepts the connection but never answers.
+    accepts the connection but never answers, and ``dataset`` is what a
+    ``SELECT`` for the active dataset should return.
     """
 
-    def __init__(self, *, failing: bool = False, hangs: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        failing: bool = False,
+        hangs: bool = False,
+        dataset: object = None,
+    ) -> None:
         self.failing = failing
         self.hangs = hangs
+        self.dataset = dataset
 
-    async def execute(self, *_args: object, **_kwargs: object) -> None:
+    async def execute(self, *_args: object, **_kwargs: object) -> FakeResult:
         if self.hangs:
             await asyncio.sleep(3600)
         if self.failing:
             raise ConnectionError("connection refused")
+        return FakeResult(self.dataset)
 
 
 class FakeRedis:

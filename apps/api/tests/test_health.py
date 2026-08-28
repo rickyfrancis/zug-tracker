@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import FastAPI
 from httpx import AsyncClient
@@ -87,3 +88,55 @@ async def test_hanging_dependency_times_out_instead_of_blocking(
     postgres = _dependency(response.json(), "postgres")
     assert postgres["status"] == "error"
     assert "timed out" in postgres["detail"]
+
+
+class FakeDataset:
+    """The columns HealthService reads off an active Dataset row."""
+
+    def __init__(self, valid_to: date) -> None:
+        self.feed_id = "fv_free"
+        self.version = "20260822T084127Z-8153a8b8"
+        self.imported_at = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
+        self.valid_from = date(2026, 8, 22)
+        self.valid_to = valid_to
+
+
+async def test_active_dataset_is_reported_with_its_expiry(
+    app_factory: Callable[..., FastAPI],
+) -> None:
+    """The feed expires; a deployment should see it coming, not discover it."""
+    valid_to = datetime.now(UTC).date() + timedelta(days=24)
+    app = app_factory(session=FakeSession(dataset=FakeDataset(valid_to)))
+
+    async with _client_for(app) as client:
+        response = await client.get("/api/v1/health")
+
+    dataset = response.json()["dataset"]
+    assert dataset["feed_id"] == "fv_free"
+    assert dataset["version"] == "20260822T084127Z-8153a8b8"
+    assert dataset["days_until_expiry"] == 24
+    assert dataset["is_expired"] is False
+
+
+async def test_expired_dataset_is_flagged_without_degrading_the_api(
+    app_factory: Callable[..., FastAPI],
+) -> None:
+    """An empty map is a data problem, not an unhealthy process."""
+    expired = datetime.now(UTC).date() - timedelta(days=1)
+    app = app_factory(session=FakeSession(dataset=FakeDataset(expired)))
+
+    async with _client_for(app) as client:
+        response = await client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["dataset"]["is_expired"] is True
+    assert payload["dataset"]["days_until_expiry"] == -1
+
+
+async def test_dataset_is_absent_before_the_first_import(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    assert response.json()["dataset"] is None

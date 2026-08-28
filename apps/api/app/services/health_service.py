@@ -8,7 +8,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 
 from redis.asyncio import Redis
@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.repositories.dataset_repository import DatasetRepository
 
 logger = get_logger(__name__)
 
@@ -40,10 +41,37 @@ class DependencyCheck:
 
 
 @dataclass(frozen=True)
+class DatasetInfo:
+    """The timetable currently being served.
+
+    Informational: an expired or missing dataset does not make the API
+    unhealthy, so it never flips the overall status. It is reported because
+    until Phase 6 schedules re-imports, the feed's 31-day validity window is
+    the thing most likely to quietly empty the map, and a deployment should be
+    able to see that coming rather than discover it.
+    """
+
+    feed_id: str
+    version: str
+    imported_at: datetime
+    valid_from: date
+    valid_to: date
+
+    @property
+    def days_until_expiry(self) -> int:
+        return (self.valid_to - datetime.now(UTC).date()).days
+
+    @property
+    def is_expired(self) -> bool:
+        return self.days_until_expiry < 0
+
+
+@dataclass(frozen=True)
 class HealthReport:
     status: OverallStatus
     checked_at: datetime
     dependencies: tuple[DependencyCheck, ...]
+    dataset: DatasetInfo | None = None
 
 
 class HealthService:
@@ -64,11 +92,13 @@ class HealthService:
         *,
         heartbeat_key: str,
         heartbeat_ttl_seconds: int,
+        feed_id: str,
     ) -> None:
         self._session = session
         self._redis = redis
         self._heartbeat_key = heartbeat_key
         self._heartbeat_ttl_seconds = heartbeat_ttl_seconds
+        self._feed_id = feed_id
 
     async def check(self) -> HealthReport:
         # Probes are independent, so run them concurrently: the endpoint's worst
@@ -90,6 +120,31 @@ class HealthService:
             status=status,
             checked_at=datetime.now(UTC),
             dependencies=dependencies,
+            dataset=await self._active_dataset(),
+        )
+
+    async def _active_dataset(self) -> DatasetInfo | None:
+        """Read the active dataset, tolerating its absence.
+
+        Nothing here may raise: the table does not exist before the Phase 2
+        migration runs, and no data has been imported before the first import.
+        Both are ordinary states for a freshly deployed stack.
+        """
+        try:
+            async with asyncio.timeout(self.PROBE_TIMEOUT_SECONDS):
+                dataset = await DatasetRepository(self._session).active(self._feed_id)
+        except Exception as exc:  # noqa: BLE001 - informational, never fatal
+            logger.warning("healthcheck.dataset.unavailable", error=str(exc))
+            return None
+
+        if dataset is None:
+            return None
+        return DatasetInfo(
+            feed_id=dataset.feed_id,
+            version=dataset.version,
+            imported_at=dataset.imported_at,
+            valid_from=dataset.valid_from,
+            valid_to=dataset.valid_to,
         )
 
     async def _check_postgres(self) -> DependencyCheck:
