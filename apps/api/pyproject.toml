@@ -30,6 +30,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.4",
+    "testcontainers[postgres]>=4",
 ]
 
 [tool.ruff]
@@ -54,3 +55,9 @@ disallow_untyped_defs = false
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-q"
+markers = [
+    # Needs a real PostGIS container. Composite foreign keys, the partial unique
+    # index, COPY and the atomic swap have no meaningful fake - see ADR-0002.
+    # Run the rest with: pytest -m "not db"
+    "db: requires a PostgreSQL container via testcontainers",
+]
