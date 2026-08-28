@@ -48,6 +48,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-10}
+      # The API reports the active dataset on /api/v1/health.
+      GTFS_FEED_ID: ${GTFS_FEED_ID:-fv_free}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -82,6 +84,8 @@ services:
       WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-10}
       GTFS_STATIC_URL: ${GTFS_STATIC_URL:-}
       GTFS_REALTIME_URL: ${GTFS_REALTIME_URL:-}
+      GTFS_FEED_ID: ${GTFS_FEED_ID:-fv_free}
+      GTFS_DATASET_RETENTION: ${GTFS_DATASET_RETENTION:-1}
     volumes:
       - ./data:/data
     depends_on:

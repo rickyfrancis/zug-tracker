@@ -6,7 +6,7 @@ API_DIR     := apps/api
 WEB_DIR     := apps/web
 
 .PHONY: help dev up down restart logs ps build migrate revision \
-        test lint format typecheck check import-data \
+        test test-fast lint format typecheck check import-data prune-data \
         shell-api psql redis-cli clean
 
 help: ## Show this help
@@ -43,13 +43,19 @@ migrate: ## Apply database migrations
 revision: ## Create a migration (make revision m="add trips")
 	$(DEV_COMPOSE) run --rm api alembic revision --autogenerate -m "$(m)"
 
-import-data: ## Import the static GTFS feed
-	@echo "Not implemented yet - arrives with the GTFS importer in Phase 2."
+import-data: ## Import the static GTFS feed (no-op if unchanged; add force=1)
+	$(DEV_COMPOSE) run --rm worker python -m app.cli import-data $(if $(force),--force,)
+
+prune-data: ## Delete superseded datasets beyond the retention limit
+	$(DEV_COMPOSE) run --rm worker python -m app.cli prune
 
 # --- quality -----------------------------------------------------------------
 
-test: ## Run backend tests
+test: ## Run backend tests (needs Docker for the db-marked ones)
 	cd $(API_DIR) && uv run pytest
+
+test-fast: ## Run backend tests that need no database container
+	cd $(API_DIR) && uv run pytest -m "not db"
 
 lint: ## Lint backend and frontend
 	cd $(API_DIR) && uv run ruff check .

@@ -31,9 +31,17 @@ class Settings(BaseSettings):
     worker_interval_seconds: float = 10.0
     worker_heartbeat_key: str = "zug:worker:heartbeat"
 
-    # Populated in later phases (GTFS import / realtime polling).
     gtfs_static_url: str = ""
+    # Populated in Phase 6 (realtime polling).
     gtfs_realtime_url: str = ""
+
+    #: Identifies the feed a dataset came from. Adding regional trains later is
+    #: an import under a second feed_id, not a migration.
+    gtfs_feed_id: str = "fv_free"
+
+    #: Superseded datasets kept after an import. One makes a bad import
+    #: reversible and keeps rows from vanishing under an in-flight reader.
+    gtfs_dataset_retention: int = 1
 
     @property
     def is_production(self) -> bool:
