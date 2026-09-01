@@ -10,9 +10,13 @@ own transaction: losing an old dataset is not a reason to roll back a good
 import. See ADR-0002.
 """
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Literal
 from zoneinfo import ZoneInfo
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import Database
 from app.core.logging import get_logger
@@ -26,7 +30,7 @@ from app.services.gtfs.service_calendar import ServiceCalendar
 
 logger = get_logger(__name__)
 
-ImportStatus = Literal["imported", "unchanged"]
+ImportStatus = Literal["imported", "unchanged", "skipped"]
 
 
 class GTFSImportError(RuntimeError):
@@ -77,6 +81,12 @@ class GTFSImportService:
 
             result = await self._import(downloaded)
 
+        if not result.imported:
+            # Nothing was written, so there is nothing to supersede. A skipped
+            # import also means another one is in flight, and pruning underneath
+            # it is at best pointless.
+            return result
+
         pruned = await self._prune()
         return ImportResult(
             status=result.status,
@@ -97,6 +107,14 @@ class GTFSImportService:
         valid_from, valid_to = bounds
 
         async with self._database.session() as session:
+            if not await _claim_import_lock(session, self._feed_id):
+                # The worker refreshes on a schedule and an operator can still
+                # run `make import-data` by hand. Without this the two would
+                # both load, and the loser would die on the single-active-dataset
+                # index after doing all of the work.
+                logger.info("gtfs.import.already_running", feed_id=self._feed_id)
+                return ImportResult(status="skipped")
+
             datasets = DatasetRepository(session)
             gtfs = GTFSRepository(session)
 
@@ -163,6 +181,31 @@ class GTFSImportService:
             )
             await session.commit()
             return pruned
+
+
+async def _claim_import_lock(session: AsyncSession, feed_id: str) -> bool:
+    """Take the per-feed import lock, or report that someone else holds it.
+
+    Transaction-scoped, so it is released by the same commit or rollback that
+    ends the load - there is no lock to leak if the process dies mid-import.
+    Non-blocking on purpose: a second importer has nothing useful to wait for,
+    since whatever the first one loads is exactly what the second would.
+    """
+    result = await session.execute(
+        text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": _lock_key(feed_id)}
+    )
+    return bool(result.scalar_one())
+
+
+def _lock_key(feed_id: str) -> int:
+    """A stable signed 64-bit lock key for one feed.
+
+    Keyed per feed so that importing ``rv_free`` later does not queue behind
+    ``fv_free``. Advisory lock keys share one namespace across the database,
+    so a hash is safer than a hand-picked constant.
+    """
+    digest = hashlib.blake2b(feed_id.encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big", signed=True)
 
 
 def _single_timezone(feed: FeedContents) -> str:

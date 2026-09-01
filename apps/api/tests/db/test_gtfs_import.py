@@ -17,7 +17,11 @@ from sqlalchemy import func, select, text
 from app.core.db import Database
 from app.models.gtfs import Dataset, StopTimeInstance, Trip, TripInstance
 from app.providers.gtfs_static import DownloadedFeed, FeedMetadata
-from app.services.gtfs.import_service import GTFSImportError, GTFSImportService
+from app.services.gtfs.import_service import (
+    GTFSImportError,
+    GTFSImportService,
+    _lock_key,
+)
 
 pytestmark = pytest.mark.db
 
@@ -303,3 +307,47 @@ class TestAtomicity:
         assert still_active is not None
         assert still_active.id == good.id
         assert await count(database, Dataset) == 1
+
+
+class TestConcurrentImports:
+    """The worker refreshes on a schedule; an operator can still run the CLI.
+
+    Both would otherwise load the whole feed and the loser would die on the
+    single-active-dataset index, having done all of the work first.
+    """
+
+    async def test_an_import_is_skipped_while_another_holds_the_lock(
+        self, database: Database
+    ) -> None:
+        async with database.session() as holder:
+            await holder.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"), {"key": _lock_key(FEED_ID)}
+            )
+
+            result = await service(database, StubProvider(FEED)).run()
+
+            assert result.status == "skipped"
+            assert await count(database, Dataset) == 0
+
+    async def test_the_lock_is_released_with_the_transaction(self, database: Database) -> None:
+        async with database.session() as holder:
+            await holder.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"), {"key": _lock_key(FEED_ID)}
+            )
+            await holder.rollback()
+
+        result = await service(database, StubProvider(FEED)).run()
+
+        assert result.imported
+        assert await count(database, Dataset) == 1
+
+    async def test_a_different_feed_is_not_blocked(self, database: Database) -> None:
+        """Locks are per feed, so importing rv_free later cannot queue behind fv_free."""
+        async with database.session() as holder:
+            await holder.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"), {"key": _lock_key("other_feed")}
+            )
+
+            result = await service(database, StubProvider(FEED)).run()
+
+            assert result.imported

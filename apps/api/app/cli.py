@@ -4,9 +4,11 @@ Run inside the worker service, which already carries the GTFS environment:
 
     docker compose run --rm worker python -m app.cli import-data
 
-Scheduling these is Phase 6's job. Until then the feed's 31-day validity window
-is refreshed by running ``import-data``, and ``/api/v1/health`` reports when the
-active dataset expires.
+The running worker already refreshes the feed daily, so these commands are for
+forcing the issue: a first import on a fresh database, or a re-import after
+changing something about how the feed is parsed. Both paths share one
+``GTFSImportService``, and an import taken by the worker meanwhile is detected
+rather than duplicated.
 """
 
 import argparse
@@ -63,7 +65,7 @@ async def import_data(settings: Settings, *, force: bool) -> int:
         await database.dispose()
 
     if not result.imported:
-        logger.info("cli.import.unchanged", feed_id=settings.gtfs_feed_id)
+        logger.info("cli.import.skipped", status=result.status, feed_id=settings.gtfs_feed_id)
         return EXIT_OK
 
     logger.info(
