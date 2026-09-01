@@ -45,10 +45,11 @@ class DatasetInfo:
     """The timetable currently being served.
 
     Informational: an expired or missing dataset does not make the API
-    unhealthy, so it never flips the overall status. It is reported because
-    until Phase 6 schedules re-imports, the feed's 31-day validity window is
-    the thing most likely to quietly empty the map, and a deployment should be
-    able to see that coming rather than discover it.
+    unhealthy, so it never flips the overall status. It is reported because the
+    feed's 31-day validity window is the thing most likely to quietly empty the
+    map, and a deployment should be able to see that coming rather than discover
+    it. The worker refreshes the feed daily; this is how you find out that it
+    stopped.
     """
 
     feed_id: str

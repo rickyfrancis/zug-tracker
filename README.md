@@ -41,8 +41,11 @@ Requires Docker with Compose v2.
 cp .env.example .env
 make dev            # http://localhost:3000, API at http://localhost:8000/docs
 make migrate        # apply database migrations
-make import-data    # load the German long-distance timetable (~10s)
 ```
+
+The worker imports the timetable itself on startup (~10s) and re-checks the feed
+daily, so there is no manual import step. `make import-data` still exists to
+force the issue.
 
 The landing page reports the status of every service, so a green page means the
 stack is wired up correctly. `GET /api/v1/health` additionally reports which
@@ -66,7 +69,7 @@ Run `make` for the full list.
 | `make logs s=api` | Follow one service's logs |
 | `make migrate` | Apply migrations |
 | `make revision m="..."` | Create a migration |
-| `make import-data` | Import the static GTFS feed (`force=1` to re-import unchanged data) |
+| `make import-data` | Import the static GTFS feed now, ahead of the worker's daily refresh (`force=1` to re-import unchanged data) |
 | `make prune-data` | Delete superseded datasets beyond the retention limit |
 | `make check` | Lint, type-check and test both apps |
 | `make test-fast` | Backend tests that need no database container |
@@ -76,13 +79,16 @@ Run `make` for the full list.
 ## The timetable data
 
 The feed is [gtfs.de](https://gtfs.de)'s `fv_free` (data from DELFI e.V.):
-415 KB, ~5,600 trips across ICE, IC, EC, ECE, RJ and EN. `make import-data`
-downloads it, loads it under a new **dataset**, expands it into dated trips, and
-flips a pointer to the new version - so re-running it is always safe.
+~400 KB, ~5,400 trips across ICE, IC, EC, ECE, RJ and EN. The worker downloads
+it, loads it under a new **dataset**, expands it into dated trips, and flips a
+pointer to the new version - so importing again is always safe.
+
+One release, the 2026-08-29 one, to give a sense of scale - every count shifts a
+little with each refresh:
 
 ```text
-5,589 trips     95 routes      13 agencies      1,198 stops
-54,928 stop times  ->  33,527 trip instances  +  307,023 stop-time instances
+5,354 trips     96 routes      13 agencies      1,222 stops
+53,411 stop times  ->  33,278 trip instances  +  311,060 stop-time instances
 ```
 
 Four facts about this feed shaped the schema, and each cost a design decision:
@@ -92,15 +98,17 @@ Four facts about this feed shaped the schema, and each cost a design decision:
   cannot be rendered. Trains are identified by line and destination instead.
 - **`route_short_name` is often just a category.** 953 trips (17%) sit on routes
   named plainly `ICE` or `EC`, with no line number, and `route_long_name` is
-  empty on all 95 routes. `Route` therefore stores `category` and a *nullable*
+  empty on every route. `Route` therefore stores `category` and a *nullable*
   `line`, plus both raw names verbatim.
 - **Service dates are not calendar dates.** 60 service_ids exist only in
   `calendar_dates.txt` with no weekly pattern, 16% of trips cross midnight, and
   stop times reach hour **35**. All of it is resolved once at import into
   absolute UTC ([ADR-0003](docs/adr/0003-materialized-trip-instances.md)).
-- **The feed expires after 31 days.** `/api/v1/health` reports the active
-  dataset's `valid_to` and days remaining. Automatic re-import arrives in
-  Phase 6; until then, re-run `make import-data`.
+- **The feed expires after 31 days.** The worker therefore re-checks it daily
+  (`GTFS_REFRESH_INTERVAL_SECONDS`) and re-imports when the bytes change; an
+  unchanged feed answers `304` and costs nothing. `/api/v1/health` reports the
+  active dataset's `valid_to` and days remaining, which is how you find out that
+  the refresh stopped.
 
 Every CSV is parsed **by header name**: `routes.txt` ships as
 `route_long_name, route_short_name, agency_id, route_type, route_id`, and
@@ -119,7 +127,7 @@ apps/
       repositories/  database access
       services/  domain and business logic
       providers/ external transit data sources (GTFS static, GTFS-RT)
-      worker/    background loop
+      worker/    background jobs (heartbeat, daily feed refresh)
       cli.py     data management commands (import-data, prune)
     alembic/     migrations
     tests/db/    tests needing a real PostGIS container
