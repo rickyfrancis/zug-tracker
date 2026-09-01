@@ -86,6 +86,10 @@ services:
       GTFS_REALTIME_URL: ${GTFS_REALTIME_URL:-}
       GTFS_FEED_ID: ${GTFS_FEED_ID:-fv_free}
       GTFS_DATASET_RETENTION: ${GTFS_DATASET_RETENTION:-1}
+      # The worker re-imports the timetable on this cadence; without it the
+      # feed expires after 31 days and the map empties.
+      GTFS_REFRESH_INTERVAL_SECONDS: ${GTFS_REFRESH_INTERVAL_SECONDS:-86400}
+      GTFS_REFRESH_RETRY_SECONDS: ${GTFS_REFRESH_RETRY_SECONDS:-900}
     volumes:
       - ./data:/data
     depends_on:

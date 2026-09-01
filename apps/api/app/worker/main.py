@@ -1,14 +1,22 @@
 """Background worker.
 
-Runs the same image as the API but a different command. Today it only proves
-the stack is wired up by refreshing a heartbeat in Redis; Phase 2 adds the GTFS
-import and Phase 6 replaces the tick body with GTFS-Realtime polling. The loop
-and shutdown handling stay as they are.
+Runs the same image as the API but a different command. It owns two jobs today:
+
+    heartbeat        every WORKER_INTERVAL_SECONDS   - proves the stack is alive
+    refresh-feed     every GTFS_REFRESH_INTERVAL_S   - re-imports the timetable
+
+Phase 6 adds a third for GTFS-Realtime polling; because each job carries its own
+interval (see ``jobs.py``), that is a registration rather than a restructuring.
+
+The feed refresh is here rather than in cron because the feed's validity window
+is 31 days and an expired feed serves an empty map. Nothing about a manual step
+survives contact with a deployed demo. The refresh runs the same
+``GTFSImportService`` as ``python -m app.cli import-data``, so the scheduled and
+manual paths cannot drift apart.
 """
 
 import asyncio
 import signal
-from contextlib import suppress
 from datetime import UTC, datetime
 
 from redis.asyncio import Redis
@@ -18,43 +26,63 @@ from app.core.config import Settings, get_settings
 from app.core.db import Database
 from app.core.logging import configure_logging, get_logger
 from app.core.redis import create_redis
+from app.providers.gtfs_static import GTFSStaticProvider
+from app.services.gtfs.import_service import GTFSImportService
+from app.worker.jobs import Job, run_jobs
 
 logger = get_logger(__name__)
 
 
 class Worker:
-    """Periodic task loop with graceful shutdown."""
+    """Owns the worker's jobs and their shared resources."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._database = Database(settings.database_url)
         self._redis: Redis = create_redis(settings.redis_url)
         self._stop = asyncio.Event()
-        self._tick_count = 0
 
     def request_stop(self) -> None:
         logger.info("worker.stop_requested")
         self._stop.set()
 
     async def run(self) -> None:
+        jobs = self._build_jobs()
         logger.info(
             "worker.startup",
             environment=self._settings.environment,
-            interval_seconds=self._settings.worker_interval_seconds,
+            jobs=[job.name for job in jobs],
         )
         try:
-            while not self._stop.is_set():
-                await self._tick()
-                await self._sleep_until_next_tick()
+            runners = await run_jobs(jobs, self._stop)
         finally:
             await self._shutdown()
+        logger.info("worker.stopped", runs={runner.name: runner.runs for runner in runners})
 
-    async def _tick(self) -> None:
-        self._tick_count += 1
-        try:
-            await self._heartbeat()
-        except Exception as exc:  # noqa: BLE001 - a failing tick must not kill the loop
-            logger.error("worker.tick_failed", tick=self._tick_count, error=str(exc))
+    def _build_jobs(self) -> list[Job]:
+        jobs = [
+            Job(
+                name="heartbeat",
+                run=self._heartbeat,
+                interval_seconds=self._settings.worker_interval_seconds,
+            )
+        ]
+
+        if self._settings.gtfs_static_url:
+            jobs.append(
+                Job(
+                    name="refresh-feed",
+                    run=self._refresh_feed,
+                    interval_seconds=self._settings.gtfs_refresh_interval_seconds,
+                    retry_seconds=self._settings.gtfs_refresh_retry_seconds,
+                )
+            )
+        else:
+            # Better to run without the job and say so than to register one that
+            # can only ever fail.
+            logger.warning("worker.refresh_feed.disabled", reason="GTFS_STATIC_URL is not set")
+
+        return jobs
 
     async def _heartbeat(self) -> None:
         """Touch both backing services and publish the result to Redis."""
@@ -67,19 +95,32 @@ class Worker:
             timestamp,
             ex=self._settings.heartbeat_ttl_seconds,
         )
-        logger.info("worker.tick", tick=self._tick_count, at=timestamp)
+        logger.info("worker.heartbeat", at=timestamp)
 
-    async def _sleep_until_next_tick(self) -> None:
-        """Sleep, but wake up immediately when shutdown is requested."""
-        with suppress(TimeoutError):
-            await asyncio.wait_for(
-                self._stop.wait(), timeout=self._settings.worker_interval_seconds
-            )
+    async def _refresh_feed(self) -> None:
+        """Re-import the static feed if the origin says it changed.
+
+        The conditional GET means an unchanged feed costs one 304, so this is
+        cheap enough to run on every startup as well as daily.
+        """
+        service = GTFSImportService(
+            self._database,
+            GTFSStaticProvider(self._settings.gtfs_static_url),
+            feed_id=self._settings.gtfs_feed_id,
+            retention=self._settings.gtfs_dataset_retention,
+        )
+        result = await service.run()
+        logger.info(
+            "worker.refresh_feed",
+            status=result.status,
+            dataset_id=result.dataset_id,
+            version=result.version,
+        )
 
     async def _shutdown(self) -> None:
         await self._redis.aclose()
         await self._database.dispose()
-        logger.info("worker.shutdown", ticks=self._tick_count)
+        logger.info("worker.shutdown")
 
 
 async def main() -> None:

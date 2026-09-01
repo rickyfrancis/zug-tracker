@@ -100,13 +100,6 @@ class GTFSStaticProvider:
         self._url = url
         self._timeout = timeout_seconds
 
-    async def fetch_metadata(self) -> FeedMetadata:
-        """Read the origin's validators without downloading the body."""
-        async with httpx.AsyncClient(timeout=self._timeout, follow_redirects=True) as client:
-            response = await client.head(self._url)
-            response.raise_for_status()
-            return _metadata_from(response)
-
     async def download(self, *, known: FeedMetadata | None = None) -> DownloadedFeed | None:
         """Download the archive, or return ``None`` if the origin answers 304.
 

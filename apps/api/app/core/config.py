@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     #: reversible and keeps rows from vanishing under an in-flight reader.
     gtfs_dataset_retention: int = 1
 
+    #: How often the worker asks the origin whether the static feed changed.
+    #: The check is a conditional GET, so an unchanged feed costs one 304 and
+    #: no body - daily is frequent enough for a feed published at most weekly,
+    #: and far more often than the 31-day validity window requires.
+    gtfs_refresh_interval_seconds: float = 86_400.0
+
+    #: How soon to try again after a failed refresh. A full day is too long to
+    #: wait when the reason for refreshing at all is an expiring feed, so a
+    #: transient origin failure must not cost a whole cycle.
+    gtfs_refresh_retry_seconds: float = 900.0
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
