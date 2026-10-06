@@ -83,7 +83,7 @@ class TrainPositionEstimator:
     """Turns a dated trip and an instant into segment state."""
 
     def __init__(self, corridors: CorridorResolver | None = None) -> None:
-        self._corridors = corridors or _straight_line_between
+        self._corridors = corridors or straight_line_between
 
     def estimate(self, trip: ScheduledTrip, now: datetime) -> SegmentState | None:
         """Where ``trip`` is at ``now``, or ``None`` if it is not running.
@@ -186,5 +186,6 @@ def _progress(now: datetime, departure: datetime, arrival: datetime) -> float:
     return (now - departure) / (arrival - departure)
 
 
-def _straight_line_between(origin: Station, destination: Station) -> Corridor:
+def straight_line_between(origin: Station, destination: Station) -> Corridor:
+    """The default resolver: no curated corridors, a straight line every leg."""
     return straight_line(origin.point, destination.point)
