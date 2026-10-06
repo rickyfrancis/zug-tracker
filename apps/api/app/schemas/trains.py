@@ -7,13 +7,15 @@ shape.
 """
 
 from datetime import UTC, date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.positions.estimator import PositionSource, SegmentState, TrainStatus
+from app.services.positions.geometry import Polyline
 from app.services.positions.timetable import Station
 from app.services.trains.filters import BoundingBox, TrainFilter, parse_categories
-from app.services.trains.train_service import SnapshotInfo, TrainList
+from app.services.trains.train_service import SnapshotInfo, StopCall, TrainDetail, TrainList
 
 #: ~1 m. Train coordinates are for first paint only, so more is noise.
 POSITION_DECIMALS = 5
@@ -203,5 +205,72 @@ class TrainListResponse(SnapshotFields):
             {
                 **cls.snapshot_fields(result.snapshot),
                 "trains": [TrainOut.from_state(state) for state in result.trains],
+            }
+        )
+
+
+class StopOut(BaseModel):
+    sequence: int = Field(description="Position in this list, from 0 at the origin.")
+    station: StationOut
+    arrival_utc: datetime | None = Field(description="`null` at the origin.")
+    departure_utc: datetime | None = Field(description="`null` at the terminus.")
+
+    @classmethod
+    def from_call(cls, call: StopCall) -> "StopOut":
+        return cls(
+            sequence=call.sequence,
+            station=StationOut.from_station(call.station),
+            arrival_utc=_utc(call.arrival_utc) if call.arrival_utc else None,
+            departure_utc=_utc(call.departure_utc) if call.departure_utc else None,
+        )
+
+
+class RouteLineString(BaseModel):
+    """GeoJSON geometry, so a map can draw it as given. Coordinates are ``[lon, lat]``."""
+
+    type: Literal["LineString"] = "LineString"
+    coordinates: list[tuple[float, float]]
+
+    @classmethod
+    def from_polyline(cls, polyline: Polyline) -> "RouteLineString":
+        return cls(coordinates=[(point.lon, point.lat) for point in polyline.points])
+
+
+class TrainDetailResponse(SnapshotFields):
+    trip_id: str = Field(examples=["1579104"])
+    service_date: date
+    label: str = Field(examples=["ICE 10"])
+    destination: str = Field(examples=["München Hbf"])
+    category: str = Field(examples=["ICE"])
+    operator: str = Field(examples=["DB Fernverkehr AG"])
+    origin: StationOut
+    terminus: StationOut
+    departure_utc: datetime | None
+    arrival_utc: datetime | None
+    position: PositionOut | None = Field(
+        description="`null` when the trip is not running at `timestamp`."
+    )
+    stops: list[StopOut]
+    route: RouteLineString
+
+    @classmethod
+    def from_detail(cls, detail: TrainDetail) -> "TrainDetailResponse":
+        trip = detail.trip
+        return cls.model_validate(
+            {
+                **cls.snapshot_fields(detail.snapshot),
+                "trip_id": trip.trip_id,
+                "service_date": trip.service_date,
+                "label": trip.route_name,
+                "destination": detail.destination,
+                "category": trip.category,
+                "operator": trip.operator,
+                "origin": StationOut.from_station(detail.origin),
+                "terminus": StationOut.from_station(detail.terminus),
+                "departure_utc": _utc(detail.departure_utc) if detail.departure_utc else None,
+                "arrival_utc": _utc(detail.arrival_utc) if detail.arrival_utc else None,
+                "position": PositionOut.from_state(detail.position) if detail.position else None,
+                "stops": [StopOut.from_call(call) for call in detail.stops],
+                "route": RouteLineString.from_polyline(detail.route),
             }
         )

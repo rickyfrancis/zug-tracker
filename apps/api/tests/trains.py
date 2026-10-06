@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime
 
 from app.services.positions.estimator import PositionSource, SegmentState, TrainStatus
-from app.services.positions.timetable import ScheduledTrip, Station, TripWindow
+from app.services.positions.timetable import Call, ScheduledTrip, Station, TripWindow
 from app.services.trains.snapshot import PositionSnapshot
 from app.services.trains.train_service import TrainService
 
@@ -50,6 +50,41 @@ def segment_state(
         geometry_ref=None,
         delay_seconds=None,
         position_source=PositionSource.SCHEDULED,
+    )
+
+
+def call(
+    sequence: int,
+    station: Station,
+    arrival: datetime,
+    departure: datetime | None = None,
+    headsign: str | None = "München Hbf",
+) -> Call:
+    return Call(sequence, station, arrival, departure or arrival, headsign)
+
+
+def scheduled_trip(
+    *calls: Call, trip_id: str = "t1", service_date: date = date(2026, 8, 24)
+) -> ScheduledTrip:
+    return ScheduledTrip(
+        trip_id=trip_id,
+        service_date=service_date,
+        route_name="ICE 10",
+        category="ICE",
+        operator="DB Fernverkehr AG",
+        calls=calls,
+    )
+
+
+def berlin_leipzig_muenchen(day: int = 24, trip_id: str = "t1") -> ScheduledTrip:
+    """Berlin 07:30 -> Leipzig 08:30, dwells 5 min (with a platform change) -> München 11:00."""
+    return scheduled_trip(
+        call(0, BERLIN, at(7, 25, day), at(7, 30, day)),
+        call(1, LEIPZIG, at(8, 30, day), at(8, 32, day)),
+        call(2, LEIPZIG, at(8, 33, day), at(8, 35, day)),
+        call(3, MUENCHEN, at(11, 0, day)),
+        trip_id=trip_id,
+        service_date=date(2026, 8, day),
     )
 
 
