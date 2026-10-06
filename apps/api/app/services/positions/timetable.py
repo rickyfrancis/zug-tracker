@@ -3,8 +3,8 @@
 Plain values, not ORM rows: the estimator is pure and is tested without a
 database, so it takes these and the repository builds them. By the time a trip
 gets here, everything awkward about the feed has already been resolved -
-service-day offsets are absolute UTC (ADR-0003) and platforms are their parent
-station.
+service-day offsets are absolute UTC (ADR-0003), platforms are their parent
+station, and names are the ones a departure board would show.
 """
 
 from dataclasses import dataclass

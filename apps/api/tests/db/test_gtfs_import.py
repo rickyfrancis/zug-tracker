@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import func, select, text
 
 from app.core.db import Database
-from app.models.gtfs import Dataset, StopTimeInstance, Trip, TripInstance
+from app.models.gtfs import Dataset, Stop, StopTimeInstance, Trip, TripInstance
 from app.services.gtfs.import_service import GTFSImportError, _lock_key
 from tests.db.feed import FEED, FEED_ID, StubProvider, service
 
@@ -102,6 +102,22 @@ class TestFirstImport:
                 {"id": "900003201"},
             )
             assert float(result.scalar_one()) == pytest.approx(52.5256)
+
+    async def test_stations_get_a_display_name_and_platforms_do_not(
+        self, database: Database
+    ) -> None:
+        await service(database, StubProvider(FEED)).run()
+
+        async with database.session() as session:
+            result = await session.execute(select(Stop.stop_id, Stop.display_name))
+            names = dict(result.tuples().all())
+
+        assert names == {
+            "900003201": "Berlin Hbf",
+            "8098160": None,
+            "800000261": "München Hbf",
+            "8000261": None,
+        }
 
 
 class TestReimport:

@@ -57,6 +57,20 @@ async def test_platforms_resolve_to_their_parent_station(imported: Database) -> 
     assert state.from_station.name == "Berlin Hbf"
 
 
+async def test_stations_are_named_as_a_departure_board_names_them(imported: Database) -> None:
+    """Not the parents' own ``S+U Berlin Hauptbahnhof`` and ``München, Hauptbahnhof``."""
+    (state,) = await positions_at(imported, datetime(2026, 8, 24, 8, 0, tzinfo=UTC))
+
+    assert (state.from_station.name, state.to_station.name) == ("Berlin Hbf", "München Hbf")
+
+
+async def test_the_headsign_loses_its_track_range(imported: Database) -> None:
+    """day-trip leaves Berlin signed ``München Hbf Gl.5-10``."""
+    (state,) = await positions_at(imported, datetime(2026, 8, 24, 8, 0, tzinfo=UTC))
+
+    assert state.destination == "München Hbf"
+
+
 async def test_the_running_window_is_inclusive_at_both_ends(imported: Database) -> None:
     second = datetime(2026, 8, 24, 6, 4, 59, tzinfo=UTC)
 

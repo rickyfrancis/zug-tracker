@@ -24,6 +24,7 @@ from app.models.gtfs import (
     StopTimeInstance,
     TripInstance,
 )
+from app.services.gtfs.station_names import strip_track_suffix
 from app.services.positions.timetable import Call, ScheduledTrip, Station
 
 _platform = aliased(Stop, name="platform")
@@ -57,9 +58,15 @@ class TimetableRepository:
                 StopTimeInstance.arrival_utc,
                 StopTimeInstance.departure_utc,
                 StopTime.stop_headsign,
-                # A stop without a parent is already a station.
+                # A stop without a parent is already a station. The display name
+                # is NULL on datasets imported before it existed.
                 func.coalesce(_station.stop_id, _platform.stop_id).label("station_id"),
-                func.coalesce(_station.name, _platform.name).label("station_name"),
+                func.coalesce(
+                    _station.display_name,
+                    _station.name,
+                    _platform.display_name,
+                    _platform.name,
+                ).label("station_name"),
                 func.coalesce(_station.lat, _platform.lat).label("station_lat"),
                 func.coalesce(_station.lon, _platform.lon).label("station_lon"),
             )
@@ -144,8 +151,13 @@ def _trip(rows: Any) -> ScheduledTrip:
                 ),
                 arrival_utc=row.arrival_utc,
                 departure_utc=row.departure_utc,
-                headsign=row.stop_headsign,
+                headsign=_headsign(row.stop_headsign),
             )
             for row in calls
         ),
     )
+
+
+def _headsign(raw: str | None) -> str | None:
+    """Headsigns carry track ranges too: ``München Hbf Gl.5-10``."""
+    return strip_track_suffix(raw) if raw else raw

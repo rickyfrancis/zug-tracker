@@ -27,6 +27,7 @@ from app.services.gtfs.expander import TripExpander
 from app.services.gtfs.parser import parse_feed
 from app.services.gtfs.rows import FeedContents
 from app.services.gtfs.service_calendar import ServiceCalendar
+from app.services.gtfs.station_names import station_display_names
 
 logger = get_logger(__name__)
 
@@ -130,7 +131,9 @@ class GTFSImportService:
             counts = {
                 "agencies": await gtfs.load_agencies(dataset.id, feed.agencies),
                 "routes": await gtfs.load_routes(dataset.id, feed.routes),
-                "stops": await gtfs.load_stops(dataset.id, feed.stops),
+                "stops": await gtfs.load_stops(
+                    dataset.id, feed.stops, station_display_names(feed.stops, feed.stop_times)
+                ),
                 "calendars": await gtfs.load_calendars(dataset.id, feed.calendars),
                 "calendar_dates": await gtfs.load_calendar_dates(dataset.id, feed.calendar_dates),
                 "trips": await gtfs.load_trips(dataset.id, feed.trips),

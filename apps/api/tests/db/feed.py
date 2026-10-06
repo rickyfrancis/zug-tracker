@@ -18,7 +18,9 @@ FEED_ID = "test_fv"
 
 # A miniature feed with the shapes that matter: a non-standard routes.txt column
 # order, a bare route_short_name, a platform under a parent station, a service
-# defined only in calendar_dates.txt, and a trip crossing midnight.
+# defined only in calendar_dates.txt, and a trip crossing midnight. Station and
+# platform names are fv_free's real ones, so the parent's own name is never the
+# one to show, and a platform and a headsign carry a track range.
 FEED = {
     "agency.txt": (
         "agency_id,agency_name,agency_url,agency_timezone,agency_lang\n"
@@ -31,10 +33,10 @@ FEED = {
     ),
     "stops.txt": (
         "stop_name,parent_station,stop_id,stop_lat,stop_lon,location_type,platform_code\n"
-        "Berlin Hbf,,900003201,52.525589,13.369548,1,\n"
+        "S+U Berlin Hauptbahnhof,,900003201,52.525589,13.369548,1,\n"
         "Berlin Hbf,900003201,8098160,52.525589,13.369548,,1\n"
-        "München Hbf,,800000261,48.140232,11.558335,1,\n"
-        "München Hbf,800000261,8000261,48.140232,11.558335,,14\n"
+        '"München, Hauptbahnhof",,800000261,48.140232,11.558335,1,\n'
+        "München Hbf Gl.5-10,800000261,8000261,48.140232,11.558335,,5\n"
     ),
     "calendar.txt": (
         "monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date,service_id\n"
@@ -46,7 +48,7 @@ FEED = {
     "stop_times.txt": (
         "trip_id,arrival_time,departure_time,stop_id,stop_sequence,"
         "stop_headsign,pickup_type,drop_off_type\n"
-        "day-trip,08:00:00,08:05:00,8098160,0,München Hbf,,\n"
+        "day-trip,08:00:00,08:05:00,8098160,0,München Hbf Gl.5-10,,\n"
         "day-trip,12:00:00,12:00:00,8000261,1,München Hbf,,\n"
         "night-trip,23:00:00,23:05:00,8098160,0,München Hbf,,\n"
         "night-trip,27:54:00,27:54:00,8000261,1,München Hbf,,\n"
