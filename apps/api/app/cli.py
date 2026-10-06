@@ -9,12 +9,16 @@ forcing the issue: a first import on a fresh database, or a re-import after
 changing something about how the feed is parsed. Both paths share one
 ``GTFSImportService``, and an import taken by the worker meanwhile is detected
 rather than duplicated.
+
+``positions`` prints what the position engine makes of the active timetable,
+at any instant - the quickest way to check it against a departure board.
 """
 
 import argparse
 import asyncio
 import sys
 from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.config import Settings, get_settings
@@ -23,6 +27,7 @@ from app.core.logging import configure_logging, get_logger
 from app.providers.gtfs_static import GTFSStaticProvider
 from app.repositories.dataset_repository import DatasetRepository
 from app.services.gtfs.import_service import GTFSImportService
+from app.services.positions.position_service import PositionService
 
 logger = get_logger(__name__)
 
@@ -48,7 +53,29 @@ def build_parser() -> argparse.ArgumentParser:
         "prune",
         help="Delete superseded datasets beyond the retention limit",
     )
+
+    positions = subcommands.add_parser(
+        "positions",
+        help="Print the estimated position of every running train",
+    )
+    positions.add_argument(
+        "--at",
+        type=parse_instant,
+        default=None,
+        metavar="ISO8601",
+        help="Instant to estimate for, e.g. 2026-10-06T14:30+02:00; "
+        "no offset means UTC (default: now)",
+    )
     return parser
+
+
+def parse_instant(value: str) -> datetime:
+    """Parse an ISO 8601 instant, reading one without an offset as UTC."""
+    try:
+        instant = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not an ISO 8601 instant: {value!r}") from exc
+    return instant if instant.tzinfo is not None else instant.replace(tzinfo=UTC)
 
 
 async def import_data(settings: Settings, *, force: bool) -> int:
@@ -93,6 +120,26 @@ async def prune(settings: Settings) -> int:
     return EXIT_OK
 
 
+async def positions(settings: Settings, *, at: datetime | None) -> int:
+    now = at or datetime.now(UTC)
+    database = Database(settings.database_url)
+    try:
+        async with database.session() as session:
+            states = await PositionService(session, feed_id=settings.gtfs_feed_id).positions_at(now)
+    finally:
+        await database.dispose()
+
+    print(f"{len(states)} trains running at {now.isoformat()}")
+    for state in sorted(states, key=lambda state: state.display_name):
+        segment = f"{state.from_station.name} -> {state.to_station.name}"
+        bearing = "  - " if state.bearing is None else f"{state.bearing:3.0f}°"
+        print(
+            f"{state.display_name:<42} {state.status:<7} {state.progress:4.0%}  "
+            f"{state.lat:8.4f} {state.lon:8.4f} {bearing}  {segment}"
+        )
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     settings = get_settings()
@@ -101,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     commands: dict[str, Callable[[], Coroutine[Any, Any, int]]] = {
         "import-data": lambda: import_data(settings, force=arguments.force),
         "prune": lambda: prune(settings),
+        "positions": lambda: positions(settings, at=arguments.at),
     }
 
     try:

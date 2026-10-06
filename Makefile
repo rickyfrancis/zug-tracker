@@ -6,7 +6,7 @@ API_DIR     := apps/api
 WEB_DIR     := apps/web
 
 .PHONY: help dev up down restart logs ps build migrate revision \
-        test test-fast lint format typecheck check import-data prune-data \
+        test test-fast lint format typecheck check import-data prune-data positions \
         shell-api psql redis-cli clean
 
 help: ## Show this help
@@ -48,6 +48,9 @@ import-data: ## Import the static GTFS feed (no-op if unchanged; add force=1)
 
 prune-data: ## Delete superseded datasets beyond the retention limit
 	$(DEV_COMPOSE) run --rm worker python -m app.cli prune
+
+positions: ## Print every running train's estimated position (at=2026-10-09T12:40+02:00)
+	$(DEV_COMPOSE) run --rm worker python -m app.cli positions $(if $(at),--at $(at),)
 
 # --- quality -----------------------------------------------------------------
 
