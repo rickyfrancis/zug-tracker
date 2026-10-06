@@ -1,9 +1,12 @@
 """Builders shared by the train service and API tests."""
 
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 
 from app.services.positions.estimator import PositionSource, SegmentState, TrainStatus
-from app.services.positions.timetable import Station
+from app.services.positions.timetable import ScheduledTrip, Station, TripWindow
+from app.services.trains.snapshot import PositionSnapshot
+from app.services.trains.train_service import TrainService
 
 BERLIN = Station("900003201", "Berlin Hbf", 52.525589, 13.369548)
 HAMBURG = Station("294573", "Hamburg Hbf", 53.553533, 10.006692)
@@ -47,4 +50,49 @@ def segment_state(
         geometry_ref=None,
         delay_seconds=None,
         position_source=PositionSource.SCHEDULED,
+    )
+
+
+class FakeSnapshotReader:
+    """Serves a fixed snapshot, in place of computing one or reading Redis."""
+
+    def __init__(self, *trains: SegmentState, generated_at: datetime = NOW) -> None:
+        self.snapshot = PositionSnapshot(generated_at=generated_at, trains=trains)
+
+    async def read(self) -> PositionSnapshot:
+        return self.snapshot
+
+
+class FakeTimetable:
+    """The slice of ``TimetableRepository`` the train service calls."""
+
+    def __init__(self, *trips: ScheduledTrip, categories: Sequence[str] = ("ICE",)) -> None:
+        self.trips = {(trip.trip_id, trip.service_date): trip for trip in trips}
+        self._categories = list(categories)
+
+    async def trip(self, _feed_id: str, trip_id: str, service_date: date) -> ScheduledTrip | None:
+        return self.trips.get((trip_id, service_date))
+
+    async def trip_windows(self, _feed_id: str, trip_id: str) -> list[TripWindow]:
+        calls = [
+            (trip.service_date, trip.calls[0].departure_utc, trip.calls[-1].arrival_utc)
+            for (known, _), trip in sorted(self.trips.items())
+            if known == trip_id
+        ]
+        return [TripWindow(*window) for window in calls]
+
+    async def categories(self, _feed_id: str) -> list[str]:
+        return self._categories
+
+
+def train_service(
+    snapshot: FakeSnapshotReader | None = None,
+    timetable: FakeTimetable | None = None,
+    now: datetime = NOW,
+) -> TrainService:
+    return TrainService(
+        snapshot or FakeSnapshotReader(),
+        timetable or FakeTimetable(),  # type: ignore[arg-type]
+        feed_id="fv_free",
+        clock=lambda: now,
     )
