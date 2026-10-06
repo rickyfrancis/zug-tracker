@@ -7,7 +7,7 @@ parent stations.
 """
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from itertools import groupby
 from typing import Any
 
@@ -25,14 +25,14 @@ from app.models.gtfs import (
     TripInstance,
 )
 from app.services.gtfs.station_names import strip_track_suffix
-from app.services.positions.timetable import Call, ScheduledTrip, Station
+from app.services.positions.timetable import Call, ScheduledTrip, Station, TripWindow
 
 _platform = aliased(Stop, name="platform")
 _station = aliased(Stop, name="station")
 
 
 class TimetableRepository:
-    """Reads dated trips out of the active dataset."""
+    """Reads dated trips, and what the API needs about them, out of the active dataset."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -48,6 +48,56 @@ class TimetableRepository:
             TripInstance.ends_at_utc >= at,
         )
         return await self._trips(statement)
+
+    async def trip(self, feed_id: str, trip_id: str, service_date: date) -> ScheduledTrip | None:
+        """One dated trip with all of its calls, or ``None`` if it does not run that day."""
+        statement = _calls_statement(feed_id).where(
+            TripInstance.trip_id == trip_id,
+            TripInstance.service_date == service_date,
+        )
+        trips = await self._trips(statement)
+        return trips[0] if trips else None
+
+    async def trip_windows(self, feed_id: str, trip_id: str) -> list[TripWindow]:
+        """Every dated instance of a trip, in service-date order.
+
+        A trip_id names a pattern that runs on many days - at most one a day,
+        so about 31 rows across the feed's validity window.
+        """
+        statement = (
+            select(
+                TripInstance.service_date,
+                TripInstance.starts_at_utc,
+                TripInstance.ends_at_utc,
+            )
+            .join(Dataset, Dataset.id == TripInstance.dataset_id)
+            .where(
+                Dataset.feed_id == feed_id,
+                Dataset.is_active.is_(True),
+                TripInstance.trip_id == trip_id,
+            )
+            .order_by(TripInstance.service_date)
+        )
+        rows = (await self._session.execute(statement)).all()
+        return [
+            TripWindow(
+                service_date=row.service_date,
+                starts_at_utc=row.starts_at_utc,
+                ends_at_utc=row.ends_at_utc,
+            )
+            for row in rows
+        ]
+
+    async def categories(self, feed_id: str) -> list[str]:
+        """Every category the active timetable has a route in, whether running or not."""
+        statement = (
+            select(Route.category)
+            .distinct()
+            .join(Dataset, Dataset.id == Route.dataset_id)
+            .where(Dataset.feed_id == feed_id, Dataset.is_active.is_(True))
+            .order_by(Route.category)
+        )
+        return list((await self._session.execute(statement)).scalars())
 
     async def _trips(self, statement: Select[Any]) -> list[ScheduledTrip]:
         rows = (await self._session.execute(statement)).all()

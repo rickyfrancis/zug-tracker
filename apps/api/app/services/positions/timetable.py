@@ -59,3 +59,16 @@ class ScheduledTrip:
     category: str
     operator: str
     calls: tuple[Call, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TripWindow:
+    """When one dated instance of a trip runs: first departure to last arrival."""
+
+    service_date: date
+    starts_at_utc: datetime
+    ends_at_utc: datetime
+
+    def contains(self, instant: datetime) -> bool:
+        """Inclusive at both ends, like the running-trips query."""
+        return self.starts_at_utc <= instant <= self.ends_at_utc
