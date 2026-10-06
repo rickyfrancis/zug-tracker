@@ -162,8 +162,8 @@ def _position_fields(state: SegmentState) -> dict[str, object]:
     }
 
 
-class TrainOut(PositionOut):
-    """A running train. ``(trip_id, service_date)`` identifies it."""
+class TrainIdentity(BaseModel):
+    """Which train this is. ``(trip_id, service_date)`` identifies it."""
 
     trip_id: str = Field(examples=["1579104"])
     service_date: date
@@ -171,6 +171,11 @@ class TrainOut(PositionOut):
     destination: str = Field(examples=["München Hbf"])
     category: str = Field(examples=["ICE"])
     operator: str = Field(examples=["DB Fernverkehr AG"])
+
+
+# Pydantic orders fields base-last-first, so identity comes before position.
+class TrainOut(PositionOut, TrainIdentity):
+    """A running train."""
 
     @classmethod
     def from_state(cls, state: SegmentState) -> "TrainOut":
@@ -236,13 +241,7 @@ class RouteLineString(BaseModel):
         return cls(coordinates=[(point.lon, point.lat) for point in polyline.points])
 
 
-class TrainDetailResponse(SnapshotFields):
-    trip_id: str = Field(examples=["1579104"])
-    service_date: date
-    label: str = Field(examples=["ICE 10"])
-    destination: str = Field(examples=["München Hbf"])
-    category: str = Field(examples=["ICE"])
-    operator: str = Field(examples=["DB Fernverkehr AG"])
+class TrainDetailResponse(TrainIdentity, SnapshotFields):
     origin: StationOut
     terminus: StationOut
     departure_utc: datetime | None
