@@ -71,6 +71,7 @@ Run `make` for the full list.
 | `make revision m="..."` | Create a migration |
 | `make import-data` | Import the static GTFS feed now, ahead of the worker's daily refresh (`force=1` to re-import unchanged data) |
 | `make prune-data` | Delete superseded datasets beyond the retention limit |
+| `make positions` | Print every running train's estimated position, now or `at=<ISO 8601>` |
 | `make check` | Lint, type-check and test both apps |
 | `make test-fast` | Backend tests that need no database container |
 | `make psql` / `make redis-cli` | Open a database or Redis shell |
@@ -165,7 +166,7 @@ data/            downloaded GTFS feeds (git-ignored)
 |---|---|---|
 | 1 | Bootstrap the stack | done |
 | 2 | Static GTFS importer | done |
-| 3 | Position engine | next |
+| 3 | Position engine | in progress: estimator and straight-line geometry done; curated corridors next |
 | 4 | REST API | |
 | 5 | MapLibre map | |
 | 6 | GTFS-Realtime ingestion | |
