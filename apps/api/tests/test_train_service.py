@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 
+from app.services.positions.estimator import PositionSource, TrainStatus
 from app.services.positions.timetable import TripWindow
 from app.services.trains.snapshot import PositionSnapshot
 from app.services.trains.train_service import choose_instance
@@ -124,3 +125,34 @@ class TestDetail:
         service = train_service(timetable=FakeTimetable(berlin_leipzig_muenchen()))
 
         assert await service.detail(trip_id, service_date) is None
+
+
+class TestStats:
+    async def test_counts_with_every_key_present(self) -> None:
+        snapshot = FakeSnapshotReader(
+            segment_state(trip_id="a", category="ICE"),
+            segment_state(trip_id="b", category="ICE", status=TrainStatus.STOPPED),
+            segment_state(trip_id="c", category="IC"),
+        )
+        timetable = FakeTimetable(categories=["EC", "EN", "IC", "ICE"])
+
+        stats = await train_service(snapshot, timetable).stats()
+
+        assert stats.total == 3
+        assert stats.by_category == {"EC": 0, "EN": 0, "IC": 1, "ICE": 2}
+        assert stats.by_status == {TrainStatus.MOVING: 2, TrainStatus.STOPPED: 1}
+        assert stats.by_position_source == {PositionSource.REALTIME: 0, PositionSource.SCHEDULED: 3}
+
+    async def test_a_running_category_missing_from_the_timetable_is_still_counted(self) -> None:
+        """The snapshot and the category list are two reads; an import can land between them."""
+        snapshot = FakeSnapshotReader(segment_state(category="RJ"))
+
+        stats = await train_service(snapshot, FakeTimetable(categories=["ICE"])).stats()
+
+        assert stats.by_category == {"ICE": 0, "RJ": 1}
+
+    async def test_an_empty_fleet(self) -> None:
+        stats = await train_service(timetable=FakeTimetable(categories=[])).stats()
+
+        assert (stats.total, stats.by_category) == (0, {})
+        assert stats.by_status == {TrainStatus.MOVING: 0, TrainStatus.STOPPED: 0}

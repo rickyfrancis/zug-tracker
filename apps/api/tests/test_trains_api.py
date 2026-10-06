@@ -274,3 +274,29 @@ class TestDetail:
 
         assert response.status_code == 422
         assert response.json()["detail"][0]["loc"] == ["query", "service_date"]
+
+
+class TestStats:
+    async def test_counts(self, serve: Callable[[TrainService], AsyncClient]) -> None:
+        snapshot = FakeSnapshotReader(BERLIN_LEIPZIG, HAMBURG_BERLIN, LEIPZIG_MUENCHEN)
+        timetable = FakeTimetable(categories=["EC", "EN", "IC", "ICE"])
+        async with serve(train_service(snapshot, timetable)) as client:
+            response = await client.get("/api/v1/stats")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "timestamp": "2026-08-24T08:00:00Z",
+            "snapshot_age_seconds": 0,
+            "total": 3,
+            "by_category": {"EC": 1, "EN": 0, "IC": 1, "ICE": 1},
+            "by_status": {"moving": 3, "stopped": 0},
+            "by_position_source": {"realtime": 0, "scheduled": 3},
+        }
+
+
+async def test_every_endpoint_is_documented(client: AsyncClient) -> None:
+    paths = (await client.get("/openapi.json")).json()["paths"]
+
+    assert {"/api/v1/trains", "/api/v1/trains/{trip_id}", "/api/v1/stats"} <= set(paths)
+    parameters = {param["name"] for param in paths["/api/v1/trains"]["get"]["parameters"]}
+    assert parameters == {"bbox", "zoom", "category"}

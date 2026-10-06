@@ -5,14 +5,17 @@ Positions come only from the snapshot, never recomputed here, so a train looks
 the same in every endpoint and Phase 6 changes none of this.
 """
 
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 
 from app.repositories.timetable_repository import TimetableRepository
 from app.services.positions.estimator import (
     CorridorResolver,
+    PositionSource,
     SegmentState,
+    TrainStatus,
     merge_station_calls,
     straight_line_between,
 )
@@ -72,6 +75,17 @@ class TrainDetail:
     @property
     def arrival_utc(self) -> datetime | None:
         return self.stops[-1].arrival_utc
+
+
+@dataclass(frozen=True, slots=True)
+class FleetStats:
+    """Counts across every running train. Every key is present, zeros included."""
+
+    snapshot: SnapshotInfo
+    total: int
+    by_category: dict[str, int]
+    by_status: dict[TrainStatus, int]
+    by_position_source: dict[PositionSource, int]
 
 
 class TrainService:
@@ -137,6 +151,28 @@ class TrainService:
             route=trip_route(trip.calls, self._corridors),
         )
 
+    async def stats(self) -> FleetStats:
+        """Fleet-wide counts, unfiltered.
+
+        Categories come from the timetable rather than from the running trains,
+        so one with nothing running right now - night trains at noon - is
+        reported as zero rather than missing.
+        """
+        snapshot = await self._snapshots.read()
+        categories = await self._timetable.categories(self._feed_id)
+        running = Counter(state.category for state in snapshot.trains)
+        return FleetStats(
+            snapshot=self._info(snapshot),
+            total=len(snapshot.trains),
+            by_category={
+                category: running[category] for category in sorted({*categories, *running})
+            },
+            by_status=_count(TrainStatus, (state.status for state in snapshot.trains)),
+            by_position_source=_count(
+                PositionSource, (state.position_source for state in snapshot.trains)
+            ),
+        )
+
     def _info(self, snapshot: PositionSnapshot) -> SnapshotInfo:
         return SnapshotInfo(
             generated_at=snapshot.generated_at,
@@ -173,3 +209,8 @@ def _stops(trip: ScheduledTrip) -> tuple[StopCall, ...]:
         )
         for index, call in enumerate(calls)
     )
+
+
+def _count[E: (TrainStatus, PositionSource)](kind: type[E], values: Iterable[E]) -> dict[E, int]:
+    counts = Counter(values)
+    return {member: counts[member] for member in sorted(kind, key=str)}
