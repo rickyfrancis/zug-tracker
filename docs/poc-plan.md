@@ -675,7 +675,8 @@ The original plan forbade railway geometry outright. Measurement showed why
 that fails: 8.7% of segments exceed 100 km and the worst is 497 km.
 
 **Decision: 30–50 hand-authored corridor polylines**, stored as static GeoJSON
-in `data/corridors/`, keyed by **parent-station pair**, ranked by
+in `data/corridors/`, keyed by **location** (station coordinates, not station
+IDs or names, which are not stable across feed releases) **[revised]**, ranked by
 `instances × distance` (see 3.4). Straight-line fallback for every uncovered
 pair.
 
@@ -770,6 +771,17 @@ Response:
   "trains": [ ... ]
 }
 ```
+
+Resolved in Phase 4 **[revised]** (ADR-0005):
+
+- `bbox` keeps a train when its *segment's* bounds overlap the box, so trains
+  about to enter the view are present for Phase 8's extrapolation.
+- `zoom` is validated and reserved for level of detail; it has no effect until
+  regional trains exist.
+- `category` is validated by shape, not against a list; `/stats` lists the
+  categories the timetable has.
+- `snapshot_age_seconds` is the age of the positions, always 0 while they are
+  computed per request. Timestamps are ISO 8601 UTC, not epoch seconds.
 
 ## `/api/v1/trains/{trip_id}`
 
