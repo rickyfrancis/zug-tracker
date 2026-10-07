@@ -54,3 +54,35 @@ body {
 .animate-live {
   animation: pulse-live 2s ease-in-out infinite;
 }
+
+/*
+ * MapLibre's controls, in the same palette. Its stylesheet is imported by the
+ * map component; these only recolour it.
+ */
+.maplibregl-ctrl-group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--border);
+}
+
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(0.85);
+}
+
+.maplibregl-ctrl.maplibregl-ctrl-attrib,
+.maplibregl-ctrl-attrib.maplibregl-compact {
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  color: var(--muted);
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--muted);
+}
+
+.maplibregl-ctrl-attrib-button {
+  filter: invert(0.85);
+}
