@@ -6,7 +6,8 @@ API_DIR     := apps/api
 WEB_DIR     := apps/web
 
 .PHONY: help dev up down restart logs ps build migrate revision \
-        test test-fast lint format typecheck check import-data prune-data positions \
+        test test-fast test-web lint format typecheck api-types api-types-check \
+        check import-data prune-data positions \
         shell-api psql redis-cli clean
 
 help: ## Show this help
@@ -54,11 +55,14 @@ positions: ## Print every running train's estimated position (at=2026-10-09T12:4
 
 # --- quality -----------------------------------------------------------------
 
-test: ## Run backend tests (needs Docker for the db-marked ones)
+test: ## Run backend tests (needs Docker for the db-marked ones; see test-web)
 	cd $(API_DIR) && uv run pytest
 
 test-fast: ## Run backend tests that need no database container
 	cd $(API_DIR) && uv run pytest -m "not db"
+
+test-web: ## Run frontend unit tests
+	cd $(WEB_DIR) && npm test
 
 lint: ## Lint backend and frontend
 	cd $(API_DIR) && uv run ruff check .
@@ -72,7 +76,14 @@ typecheck: ## Type-check backend and frontend
 	cd $(API_DIR) && uv run mypy app
 	cd $(WEB_DIR) && npm run typecheck
 
-check: lint typecheck test ## Run every quality gate
+api-types: ## Regenerate the web app's API types from the backend's OpenAPI schema
+	cd $(API_DIR) && uv run python -m app.cli openapi > ../web/.openapi.json
+	cd $(WEB_DIR) && npm run api:types
+
+api-types-check: api-types ## Fail if the committed web API types are behind the backend
+	git diff --exit-code -- $(WEB_DIR)/src/lib/api/schema.d.ts
+
+check: lint typecheck api-types-check test test-web ## Run every quality gate
 
 # --- shells ------------------------------------------------------------------
 

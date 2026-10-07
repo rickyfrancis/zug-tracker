@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# OpenAPI schema dumped by `make api-types`; only the generated types are committed
+/.openapi.json
