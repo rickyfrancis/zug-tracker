@@ -5,8 +5,9 @@ spirit of FlightRadar24. Positions come from GTFS schedules and, where
 available, GTFS-Realtime updates - every train reports whether its position is
 **realtime-backed** or **schedule-estimated**.
 
-> Status: **Phase 4 complete** - the API serves every running train's estimated
-> position at `/api/v1/trains`. The map arrives in Phase 5.
+> Status: **Phase 5 complete** - <http://localhost:3000> shows every running
+> train on a dark map of Germany, polled from `/api/v1/trains`. Positions are
+> schedule-estimated until realtime data arrives in Phase 6.
 
 ## Architecture
 
@@ -47,9 +48,10 @@ The worker imports the timetable itself on startup (~10s) and re-checks the feed
 daily, so there is no manual import step. `make import-data` still exists to
 force the issue.
 
-The landing page reports the status of every service, so a green page means the
-stack is wired up correctly. `GET /api/v1/health` additionally reports which
-timetable is being served and when it expires.
+`/` is the map; <http://localhost:3000/status> reports the status of every
+service, so a green page there means the stack is wired up correctly.
+`GET /api/v1/health` additionally reports which timetable is being served and
+when it expires.
 
 For host-side tooling (linting, tests, editor integration):
 
@@ -72,8 +74,10 @@ Run `make` for the full list.
 | `make import-data` | Import the static GTFS feed now, ahead of the worker's daily refresh (`force=1` to re-import unchanged data) |
 | `make prune-data` | Delete superseded datasets beyond the retention limit |
 | `make positions` | Print every running train's estimated position, now or `at=<ISO 8601>` |
-| `make check` | Lint, type-check and test both apps |
+| `make check` | Lint, type-check and test both apps, and check the web API types are current |
 | `make test-fast` | Backend tests that need no database container |
+| `make test-web` | Frontend unit tests |
+| `make api-types` | Regenerate the web app's API types from the backend's OpenAPI schema |
 | `make psql` / `make redis-cli` | Open a database or Redis shell |
 | `make clean` | Stop the stack and delete its volumes |
 
@@ -96,6 +100,37 @@ from the worker and a growing age means the data is stale
 ([ADR-0005](docs/adr/0005-serve-positions-as-a-snapshot.md)). A `bbox` keeps
 trains whose *segment* overlaps it, so trains about to drive into view are
 already in the payload.
+
+## The map
+
+A full-screen MapLibre GL JS map, framed on Germany. The trains are one GeoJSON
+source drawn by a symbol layer:
+
+- **Colour is the category:** ICE, IC/EC/ECE, Railjet and EuroNight.
+- **Arrows point along the bearing.** A train with no bearing is drawn as a dot.
+- **A ring means realtime-backed:** green when on time, amber from 6 minutes
+  late, which is DB's punctuality line. A train without a ring is estimated
+  from the timetable. Every train is estimated until Phase 6.
+
+The browser polls `GET /api/v1/trains` every 15 s with the viewport's `bbox`
+and `zoom`. It also refetches about 300 ms after each pan or zoom, and pauses
+while the tab is hidden. Trains jump between polls until Phase 8 extrapolates
+them. Clicking a train draws its route and stops from `GET /api/v1/trains/{id}`.
+
+The HUD switches from **LIVE** to **STALE** once the data on screen is two
+minutes old. That age is the snapshot's own age plus the time since it arrived,
+so the map also goes STALE when the API stops answering.
+
+The map is honest about two things:
+
+- **Overnight it is thin.** Only a few dozen long-distance trains run at 03:00,
+  so that is what the map shows. The HUD gives the count and the Berlin time of
+  the data.
+- **Cross-border trains run off the frame.** They are drawn all the way to
+  Basel, Wien or Warszawa. The map is framed on Germany but not clipped to it.
+
+The basemap is [OpenFreeMap](https://openfreemap.org)'s dark style: OpenStreetMap
+data, free, and no API key.
 
 ## The timetable data
 
@@ -158,7 +193,7 @@ apps/
       cli.py     data management commands (import-data, prune)
     alembic/     migrations
     tests/db/    tests needing a real PostGIS container
-  web/           Next.js frontend
+  web/           Next.js frontend (see apps/web/README.md)
 docs/adr/        architecture decision records
 infra/postgres/  database init scripts
 data/            downloaded GTFS feeds (git-ignored)
@@ -173,7 +208,12 @@ data/            downloaded GTFS feeds (git-ignored)
   (`postgresql+psycopg://`) works everywhere.
 - **Two API URLs.** Server components reach the API at `API_INTERNAL_URL`
   (`http://api:8000`); the browser uses `NEXT_PUBLIC_API_URL`. Both are
-  resolved in one place, `apps/web/src/lib/api.ts`.
+  resolved in one place, `apps/web/src/lib/api/index.ts`.
+- **Generated API types.** The web app's types come from the backend's OpenAPI
+  schema, and `make check` fails when they fall behind
+  ([ADR-0006](docs/adr/0006-generate-web-api-types-from-openapi.md)).
+- **Thin components.** Data fetching, polling and MapLibre live in framework-free
+  modules under `apps/web/src/lib`; React components only wire them up.
 - **Conventional Commits** (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`,
   `chore:`) on short-lived branches off `main`, which stays deployable.
 - **Datasets, not upserts.** Every GTFS table is keyed by
@@ -194,7 +234,7 @@ data/            downloaded GTFS feeds (git-ignored)
 | 2 | Static GTFS importer | done |
 | 3 | Position engine | done: estimator and straight-line geometry; curated corridors deferred until after Phase 5 |
 | 4 | REST API | done |
-| 5 | MapLibre map | |
+| 5 | MapLibre map | done |
 | 6 | GTFS-Realtime ingestion | |
 | 7 | SSE streaming | |
 | 8 | Smooth client-side animation | |

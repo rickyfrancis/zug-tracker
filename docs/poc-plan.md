@@ -803,7 +803,7 @@ Every endpoint can be inspected and tested through Swagger.
 
 ---
 
-# Phase 5: Build the Map
+# Phase 5: Build the Map — COMPLETE
 
 Full-screen MapLibre map, dark basemap, initial view Germany at zoom ≈ 5–6.
 
@@ -828,10 +828,52 @@ Delayed      Selected
 Realtime-backed vs schedule-estimated
 ```
 
+### As built **[revised]**
+
+- **Basemap:** OpenFreeMap `dark`. It is free and keyless, and needs only its
+  attribution.
+- **Polling:**
+  - every 15 s, as a `setTimeout` chain, so requests never overlap
+  - a refetch about 300 ms after each pan or zoom, aborting the request in flight
+  - backoff to 60 s on errors
+  - paused while the tab is hidden
+
+  At zoom 6 a train moves under a pixel in 15 s.
+- **Visual states:**
+  - category is shown by colour
+  - the bearing rotates the arrow, and a train without a bearing is a dot
+  - realtime is a green ring, and delayed is an amber ring
+  - scheduled is the plain case, so an all-scheduled map is complete
+- **Delayed** means at least **6 minutes** late, DB's punctuality definition,
+  and the threshold is one constant (`DELAYED_AT_SECONDS`). The 60 s threshold
+  sketched for Phase 9 would mark most of the fleet as late, because the
+  measured median delay is 4 minutes. Phase 9's delayed count should reuse the
+  constant.
+- **LIVE/STALE is wired up now.** The data's age is `snapshot_age_seconds` plus
+  the time since the response arrived. STALE starts at 120 s, which is two
+  Phase 6 worker ticks. It therefore already catches an unreachable API, and
+  Phase 6 only adds the server-side term.
+- **Selection** draws the route and stops from `/trains/{id}`. The detail panel
+  is still Phase 10.
+- **Web API types** are generated from the OpenAPI schema (ADR-0006).
+
+### Deploying Milestone A
+
+Milestone A has been reached but not deployed. Deploying needs:
+
+- `NEXT_PUBLIC_API_URL=https://<api-domain>` as a **build** argument of `web`,
+  because the value is frozen at build time.
+- `CORS_ORIGINS=https://<web-domain>` on `api`.
+- HTTPS on both domains, because the browser blocks mixed-content fetches.
+- `alembic upgrade head` as a pre-deploy step. The worker imports the feed on
+  its first start (about 10 s), and the map is empty until then.
+- OpenFreeMap's attribution kept visible. It has no SLA, so self-hosting its
+  tiles is the fallback. Any CSP added later must allow `tiles.openfreemap.org`.
+
 ### Done when
 
 Opening the application shows active trains distributed across Germany —
-**Milestone A. Deploy here.**
+**Milestone A. Deploy here.** ✅ (done; deployment pending)
 
 ---
 
@@ -1125,8 +1167,13 @@ stale snapshot                    (must flip to STALE)
 Frontend:
 
 ```bash
-npm run lint && npm run typecheck && npm run build
+npm run lint && npm run typecheck && npm test && npm run build
 ```
+
+Vitest has covered the pure modules (bbox, features, liveness, poller) since
+Phase 5. Add a Playwright smoke test here. It needs headless WebGL and a
+`page.route`-mocked API, and should cover: trains render, a pan refetches, a
+click draws the route, and STALE appears when the API stops answering.
 
 Backend:
 
