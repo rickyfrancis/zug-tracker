@@ -5,8 +5,8 @@ spirit of FlightRadar24. Positions come from GTFS schedules and, where
 available, GTFS-Realtime updates - every train reports whether its position is
 **realtime-backed** or **schedule-estimated**.
 
-> Status: **Phase 2 complete** - the timetable is in the database. Positions
-> arrive with the engine in Phase 3 and the map in Phase 5.
+> Status: **Phase 4 complete** - the API serves every running train's estimated
+> position at `/api/v1/trains`. The map arrives in Phase 5.
 
 ## Architecture
 
@@ -77,6 +77,26 @@ Run `make` for the full list.
 | `make psql` / `make redis-cli` | Open a database or Redis shell |
 | `make clean` | Stop the stack and delete its volumes |
 
+## API
+
+Interactive docs at <http://localhost:8000/docs>.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/v1/trains` | Every running train and its current segment. Filters: `?bbox=west,south,east,north`, `?category=ICE,IC`, `?zoom=` |
+| `GET /api/v1/trains/{trip_id}` | One trip: stops, route as GeoJSON, position while running. `?service_date=` picks the day |
+| `GET /api/v1/stats` | Running trains by category, status and position source |
+| `GET /api/v1/health` | Dependencies, worker heartbeat, active dataset and its expiry |
+
+Positions are segment state, not just a point: the two stations a train is
+between and when it leaves and arrives, so a client can keep placing it between
+updates. Every response carries `timestamp` and `snapshot_age_seconds`. While
+positions are computed per request the age is always 0; from Phase 6 they come
+from the worker and a growing age means the data is stale
+([ADR-0005](docs/adr/0005-serve-positions-as-a-snapshot.md)). A `bbox` keeps
+trains whose *segment* overlaps it, so trains about to drive into view are
+already in the payload.
+
 ## The timetable data
 
 The feed is [gtfs.de](https://gtfs.de)'s `fv_free` (data from DELFI e.V.):
@@ -92,7 +112,7 @@ little with each refresh:
 53,411 stop times  ->  33,278 trip instances  +  311,060 stop-time instances
 ```
 
-Four facts about this feed shaped the schema, and each cost a design decision:
+Five facts about this feed shaped the schema, and each cost a design decision:
 
 - **There are no train numbers.** `trips.txt` has three columns
   (`route_id, service_id, trip_id`) and no `trip_short_name`, so "ICE 507"
@@ -110,6 +130,12 @@ Four facts about this feed shaped the schema, and each cost a design decision:
   unchanged feed answers `304` and costs nothing. `/api/v1/health` reports the
   active dataset's `valid_to` and days remaining, which is how you find out that
   the refresh stopped.
+- **Parent stations are named for local transit.** `S+U Berlin Hauptbahnhof`
+  and `Hamburg, Hamburg Hbf` are parent stations; their platforms say
+  `Berlin Hbf` and `Hamburg Hbf`. Platforms are not uniformly clean either
+  (`München Hbf Gl.5-10`, `Bahnhof, Wittenberge`), so the import chooses each
+  station's `display_name` from its most-called comma-free platform name, with
+  track ranges stripped.
 
 Every CSV is parsed **by header name**: `routes.txt` ships as
 `route_long_name, route_short_name, agency_id, route_type, route_id`, and
@@ -166,8 +192,8 @@ data/            downloaded GTFS feeds (git-ignored)
 |---|---|---|
 | 1 | Bootstrap the stack | done |
 | 2 | Static GTFS importer | done |
-| 3 | Position engine | in progress: estimator and straight-line geometry done; curated corridors next |
-| 4 | REST API | |
+| 3 | Position engine | done: estimator and straight-line geometry; curated corridors deferred until after Phase 5 |
+| 4 | REST API | done |
 | 5 | MapLibre map | |
 | 6 | GTFS-Realtime ingestion | |
 | 7 | SSE streaming | |

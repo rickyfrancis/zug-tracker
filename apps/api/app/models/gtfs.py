@@ -157,6 +157,12 @@ class Stop(Base):
     name: Mapped[str] = mapped_column(Text)
     parent_station_id: Mapped[str | None] = mapped_column(GTFS_ID)
 
+    #: What to show for a station: ``Berlin Hbf`` rather than the parent's own
+    #: ``S+U Berlin Hauptbahnhof``. Chosen at import from the platform names
+    #: (``services/gtfs/station_names.py``); ``NULL`` on platforms, and on
+    #: datasets imported before the column existed.
+    display_name: Mapped[str | None] = mapped_column(Text)
+
     #: Kept alongside ``point`` because the position engine reads plain floats
     #: and has no reason to round-trip through PostGIS.
     lat: Mapped[float] = mapped_column()

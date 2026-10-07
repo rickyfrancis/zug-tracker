@@ -1,0 +1,133 @@
+"""Builders shared by the train service and API tests."""
+
+from collections.abc import Sequence
+from datetime import UTC, date, datetime
+
+from app.services.positions.estimator import PositionSource, SegmentState, TrainStatus
+from app.services.positions.timetable import Call, ScheduledTrip, Station, TripWindow
+from app.services.trains.snapshot import PositionSnapshot
+from app.services.trains.train_service import TrainService
+
+BERLIN = Station("900003201", "Berlin Hbf", 52.525589, 13.369548)
+HAMBURG = Station("294573", "Hamburg Hbf", 53.553533, 10.006692)
+LEIPZIG = Station("900008012", "Leipzig Hbf", 51.345, 12.382)
+MUENCHEN = Station("800000261", "München Hbf", 48.140232, 11.558335)
+
+#: Monday 24 August 2026, 08:00 UTC.
+NOW = datetime(2026, 8, 24, 8, 0, tzinfo=UTC)
+
+
+def at(hour: int, minute: int = 0, day: int = 24) -> datetime:
+    return datetime(2026, 8, day, hour, minute, tzinfo=UTC)
+
+
+def segment_state(
+    *,
+    trip_id: str = "t1",
+    service_date: date = date(2026, 8, 24),
+    category: str = "ICE",
+    status: TrainStatus = TrainStatus.MOVING,
+    from_station: Station = BERLIN,
+    to_station: Station = LEIPZIG,
+    progress: float = 0.5,
+) -> SegmentState:
+    return SegmentState(
+        trip_id=trip_id,
+        service_date=service_date,
+        label=f"{category} 10",
+        destination="München Hbf",
+        category=category,
+        operator="DB Fernverkehr AG",
+        status=status,
+        from_station=from_station,
+        to_station=to_station,
+        departure_utc=at(7, 30),
+        arrival_utc=at(8, 30),
+        progress=progress,
+        lat=(from_station.lat + to_station.lat) / 2,
+        lon=(from_station.lon + to_station.lon) / 2,
+        bearing=200.0,
+        geometry_ref=None,
+        delay_seconds=None,
+        position_source=PositionSource.SCHEDULED,
+    )
+
+
+def call(
+    sequence: int,
+    station: Station,
+    arrival: datetime,
+    departure: datetime | None = None,
+    headsign: str | None = "München Hbf",
+) -> Call:
+    return Call(sequence, station, arrival, departure or arrival, headsign)
+
+
+def scheduled_trip(
+    *calls: Call, trip_id: str = "t1", service_date: date = date(2026, 8, 24)
+) -> ScheduledTrip:
+    return ScheduledTrip(
+        trip_id=trip_id,
+        service_date=service_date,
+        route_name="ICE 10",
+        category="ICE",
+        operator="DB Fernverkehr AG",
+        calls=calls,
+    )
+
+
+def berlin_leipzig_muenchen(day: int = 24, trip_id: str = "t1") -> ScheduledTrip:
+    """Berlin 07:30 -> Leipzig 08:30, dwells 5 min (with a platform change) -> München 11:00."""
+    return scheduled_trip(
+        call(0, BERLIN, at(7, 25, day), at(7, 30, day)),
+        call(1, LEIPZIG, at(8, 30, day), at(8, 32, day)),
+        call(2, LEIPZIG, at(8, 33, day), at(8, 35, day)),
+        call(3, MUENCHEN, at(11, 0, day)),
+        trip_id=trip_id,
+        service_date=date(2026, 8, day),
+    )
+
+
+class FakeSnapshotReader:
+    """Serves a fixed snapshot, in place of computing one or reading Redis."""
+
+    def __init__(self, *trains: SegmentState, generated_at: datetime = NOW) -> None:
+        self.snapshot = PositionSnapshot(generated_at=generated_at, trains=trains)
+
+    async def read(self) -> PositionSnapshot:
+        return self.snapshot
+
+
+class FakeTimetable:
+    """The slice of ``TimetableRepository`` the train service calls."""
+
+    def __init__(self, *trips: ScheduledTrip, categories: Sequence[str] = ("ICE",)) -> None:
+        self.trips = {(trip.trip_id, trip.service_date): trip for trip in trips}
+        self._categories = list(categories)
+
+    async def trip(self, _feed_id: str, trip_id: str, service_date: date) -> ScheduledTrip | None:
+        return self.trips.get((trip_id, service_date))
+
+    async def trip_windows(self, _feed_id: str, trip_id: str) -> list[TripWindow]:
+        calls = [
+            (trip.service_date, trip.calls[0].departure_utc, trip.calls[-1].arrival_utc)
+            for (known, _), trip in sorted(self.trips.items())
+            if known == trip_id
+        ]
+        return [TripWindow(*window) for window in calls]
+
+    async def categories(self, _feed_id: str) -> list[str]:
+        return self._categories
+
+
+def train_service(
+    snapshot: FakeSnapshotReader | None = None,
+    timetable: FakeTimetable | None = None,
+    now: datetime = NOW,
+) -> TrainService:
+    return TrainService(
+        snapshot or FakeSnapshotReader(),
+        timetable or FakeTimetable(),  # type: ignore[arg-type]
+        feed_id="fv_free",
+        clock=lambda: now,
+    )

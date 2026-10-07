@@ -3,8 +3,8 @@
 Plain values, not ORM rows: the estimator is pure and is tested without a
 database, so it takes these and the repository builds them. By the time a trip
 gets here, everything awkward about the feed has already been resolved -
-service-day offsets are absolute UTC (ADR-0003) and platforms are their parent
-station.
+service-day offsets are absolute UTC (ADR-0003), platforms are their parent
+station, and names are the ones a departure board would show.
 """
 
 from dataclasses import dataclass
@@ -59,3 +59,16 @@ class ScheduledTrip:
     category: str
     operator: str
     calls: tuple[Call, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TripWindow:
+    """When one dated instance of a trip runs: first departure to last arrival."""
+
+    service_date: date
+    starts_at_utc: datetime
+    ends_at_utc: datetime
+
+    def contains(self, instant: datetime) -> bool:
+        """Inclusive at both ends, like the running-trips query."""
+        return self.starts_at_utc <= instant <= self.ends_at_utc

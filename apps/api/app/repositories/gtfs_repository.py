@@ -9,7 +9,7 @@ Load order matters: composite foreign keys are checked per row, so parents go
 in before children, and stations go in before the platforms that reference them.
 """
 
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import insert
@@ -85,7 +85,12 @@ class GTFSRepository:
             ],
         )
 
-    async def load_stops(self, dataset_id: int, rows: Sequence[StopRow]) -> int:
+    async def load_stops(
+        self,
+        dataset_id: int,
+        rows: Sequence[StopRow],
+        display_names: Mapping[str, str],
+    ) -> int:
         """Stations first: platforms carry a foreign key to their parent."""
         ordered = sorted(rows, key=lambda row: not row.is_station)
         return await self._insert(
@@ -95,6 +100,7 @@ class GTFSRepository:
                     "dataset_id": dataset_id,
                     "stop_id": row.stop_id,
                     "name": row.name,
+                    "display_name": display_names.get(row.stop_id),
                     "parent_station_id": row.parent_station_id,
                     "lat": row.lat,
                     "lon": row.lon,

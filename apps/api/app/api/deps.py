@@ -13,7 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.db import Database
+from app.repositories.timetable_repository import TimetableRepository
 from app.services.health_service import HealthService
+from app.services.positions.position_service import PositionService
+from app.services.trains.snapshot import Clock, LiveSnapshotReader, SnapshotReader, utc_now
+from app.services.trains.train_service import TrainService
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -57,3 +61,42 @@ def get_health_service(
 
 
 HealthServiceDep = Annotated[HealthService, Depends(get_health_service)]
+
+
+def get_clock() -> Clock:
+    return utc_now
+
+
+ClockDep = Annotated[Clock, Depends(get_clock)]
+
+
+def get_snapshot_reader(
+    session: SessionDep, settings: SettingsDep, clock: ClockDep
+) -> SnapshotReader:
+    """Where positions come from: computed per request until Phase 6.
+
+    The worker then writes a snapshot to Redis each tick and this returns a
+    reader for it - the one line that changes, since every endpoint reads
+    through :class:`SnapshotReader`.
+    """
+    return LiveSnapshotReader(PositionService(session, feed_id=settings.gtfs_feed_id), clock)
+
+
+SnapshotReaderDep = Annotated[SnapshotReader, Depends(get_snapshot_reader)]
+
+
+def get_train_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    snapshots: SnapshotReaderDep,
+    clock: ClockDep,
+) -> TrainService:
+    return TrainService(
+        snapshots,
+        TimetableRepository(session),
+        feed_id=settings.gtfs_feed_id,
+        clock=clock,
+    )
+
+
+TrainServiceDep = Annotated[TrainService, Depends(get_train_service)]
