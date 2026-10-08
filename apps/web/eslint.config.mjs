@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated from the API's OpenAPI schema by `make api-types`.
+    "src/lib/api/schema.d.ts",
+    // Copied from maplibre-gl by scripts/copy-maplibre-worker.mjs.
+    "public/vendor/**",
   ]),
 ]);
 

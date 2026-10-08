@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# zug-tracker web
 
-## Getting Started
+Next.js 16 (App Router, Turbopack) and MapLibre GL JS. `/` is the live map and
+`/status` reports the stack's health. Run it through `make dev` at the repo
+root, which also starts the API it polls.
 
-First, run the development server:
+## Layout
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```text
+src/app/                  routes: / (map), /status
+src/components/map/       the map's React shell: lifecycle, HUD, legend, overlays
+src/lib/api/              typed API client; schema.d.ts is generated, never edited
+src/lib/map/              MapLibre outside React: controller, layers, icons
+src/lib/trains/           framework-free logic: bbox, features, liveness, poller
+scripts/                  copy-maplibre-worker.mjs (runs before dev and build)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+MapLibre and the poller live outside React. The map component creates both once
+per mount and tears them down on unmount, so StrictMode's double mount and Fast
+Refresh each leave exactly one map. Train positions go straight into a GeoJSON
+source and never pass through React state.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`maplibre-gl` 6 loads its web worker relative to its own module URL, which a
+bundler breaks. `predev` and `prebuild` therefore copy the self-contained
+worker to `public/vendor/` (git-ignored), and the map loads it from there.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Scripts
 
-## Learn More
+| Command | |
+|---|---|
+| `npm run dev` | Dev server (normally run by `make dev`) |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | Route types plus `tsc --noEmit` |
+| `npm test` | Vitest unit tests for `src/lib` |
+| `npm run build` | Production build (`output: "standalone"`) |
 
-To learn more about Next.js, take a look at the following resources:
+## API types
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The types in `src/lib/api/schema.d.ts` are generated from the backend's OpenAPI
+schema ([ADR-0006](../../docs/adr/0006-generate-web-api-types-from-openapi.md)).
+From the repo root:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+make api-types         # regenerate after changing an API response model
+make api-types-check   # fails if the committed types are behind the backend
+```
 
-## Deploy on Vercel
+## Tests
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Vitest runs in a node environment against the pure modules in `src/lib`:
+viewport bbox, train features, liveness and the poller (with fake timers). The
+map itself is WebGL and is checked in a browser. A Playwright smoke test is
+planned for Phase 13.

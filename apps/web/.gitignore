@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# OpenAPI schema dumped by `make api-types`; only the generated types are committed
+/.openapi.json
+
+# Copied from maplibre-gl by scripts/copy-maplibre-worker.mjs
+/public/vendor/

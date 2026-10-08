@@ -12,10 +12,14 @@ rather than duplicated.
 
 ``positions`` prints what the position engine makes of the active timetable,
 at any instant - the quickest way to check it against a departure board.
+
+``openapi`` prints the API's OpenAPI schema without starting a server or
+touching the database; the web app generates its TypeScript types from it.
 """
 
 import argparse
 import asyncio
+import json
 import sys
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
@@ -65,6 +69,10 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="ISO8601",
         help="Instant to estimate for, e.g. 2026-10-06T14:30+02:00; "
         "no offset means UTC (default: now)",
+    )
+    subcommands.add_parser(
+        "openapi",
+        help="Print the API's OpenAPI schema as JSON",
     )
     return parser
 
@@ -140,6 +148,15 @@ async def positions(settings: Settings, *, at: datetime | None) -> int:
     return EXIT_OK
 
 
+async def openapi() -> int:
+    # Imported here: building the app is only needed for this command.
+    from app.main import create_app
+
+    # Sorted and indented so the generated web types diff cleanly.
+    print(json.dumps(create_app().openapi(), indent=2, sort_keys=True, ensure_ascii=False))
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     settings = get_settings()
@@ -149,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         "import-data": lambda: import_data(settings, force=arguments.force),
         "prune": lambda: prune(settings),
         "positions": lambda: positions(settings, at=arguments.at),
+        "openapi": openapi,
     }
 
     try:

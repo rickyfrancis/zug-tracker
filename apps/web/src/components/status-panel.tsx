@@ -24,7 +24,7 @@ function DependencyRow({ dependency }: { dependency: DependencyHealth }) {
         </span>
       </div>
       <div className="flex items-center gap-3 shrink-0 font-mono text-xs">
-        {dependency.latency_ms !== null && (
+        {dependency.latency_ms != null && (
           <span className="text-muted">{dependency.latency_ms} ms</span>
         )}
         <span className={`uppercase ${styles.label}`}>{dependency.status}</span>
