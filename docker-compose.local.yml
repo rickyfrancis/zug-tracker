@@ -1,0 +1,11 @@
+# Publishes the production-shaped stack on localhost for `make up`. A deployment
+# behind a reverse proxy (Coolify) uses docker-compose.yml alone.
+
+services:
+  api:
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+  web:
+    ports:
+      - "${WEB_PORT:-3000}:3000"

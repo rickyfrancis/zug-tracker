@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
-COMPOSE     := docker compose
-DEV_COMPOSE := docker compose -f docker-compose.yml -f docker-compose.dev.yml
+DEV_COMPOSE  := docker compose -f docker-compose.yml -f docker-compose.dev.yml
+PROD_COMPOSE := docker compose -f docker-compose.yml -f docker-compose.local.yml
 API_DIR     := apps/api
 WEB_DIR     := apps/web
 
@@ -19,8 +19,8 @@ help: ## Show this help
 dev: ## Run the full stack with hot reload (foreground)
 	$(DEV_COMPOSE) up --build
 
-up: ## Start the production-shaped stack in the background
-	$(COMPOSE) up -d --build
+up: ## Start the production-shaped stack in the background (localhost:3000)
+	$(PROD_COMPOSE) up -d --build
 
 down: ## Stop the stack
 	$(DEV_COMPOSE) down
