@@ -41,8 +41,10 @@ Requires Docker with Compose v2.
 ```bash
 cp .env.example .env
 make dev            # http://localhost:3000, API at http://localhost:8000/docs
-make migrate        # apply database migrations
 ```
+
+A one-shot `migrate` service applies database migrations before the api and
+worker start, on every `make dev`, `make up` and deploy.
 
 The worker imports the timetable itself on startup (~10s) and re-checks the feed
 daily, so there is no manual import step. `make import-data` still exists to
@@ -67,9 +69,9 @@ Run `make` for the full list.
 | Command | Description |
 |---|---|
 | `make dev` | Full stack with hot reload |
-| `make up` / `make down` | Production-shaped stack / stop everything |
+| `make up` / `make down` | Production-shaped stack on localhost / stop everything |
 | `make logs s=api` | Follow one service's logs |
-| `make migrate` | Apply migrations |
+| `make migrate` | Apply migrations (also done automatically on start) |
 | `make revision m="..."` | Create a migration |
 | `make import-data` | Import the static GTFS feed now, ahead of the worker's daily refresh (`force=1` to re-import unchanged data) |
 | `make prune-data` | Delete superseded datasets beyond the retention limit |
@@ -175,6 +177,12 @@ Five facts about this feed shaped the schema, and each cost a design decision:
 Every CSV is parsed **by header name**: `routes.txt` ships as
 `route_long_name, route_short_name, agency_id, route_type, route_id`, and
 positional parsing against that header corrupts silently.
+
+## Deployment
+
+The pilot deploys `docker-compose.yml` to Coolify. See [docs/deploy.md](docs/deploy.md)
+for the environment variables and domains it needs, and what each deploy does.
+`.env.production.example` lists every variable a deployment must set.
 
 ## Layout
 

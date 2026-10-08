@@ -1,8 +1,14 @@
-# Production shape of the stack. Local development layers
-# docker-compose.dev.yml on top of this (see the Makefile).
+# Production shape of the stack, and what Coolify deploys (docs/deploy.md).
+# Local development layers docker-compose.dev.yml on top of this, and `make up`
+# layers docker-compose.local.yml (see the Makefile).
 #
-# Only `web` and `api` are published; postgres, redis and the worker stay
-# internal to the compose network.
+# No ports are published here: a reverse proxy (Coolify's, in production)
+# routes a domain to `web` and one to `api`. postgres, redis and the worker
+# stay internal to the compose network.
+
+# One connection string, built from the POSTGRES_* values, so a deployment sets
+# its password once. Use a URL-safe password (letters and digits).
+x-database-url: &database-url postgresql+psycopg://${POSTGRES_USER:-zug}:${POSTGRES_PASSWORD:-zug}@postgres:5432/${POSTGRES_DB:-zug}
 
 name: zug-tracker
 
@@ -37,6 +43,23 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Applies database migrations, then exits. The api and the worker start only
+  # once it has succeeded, so every deploy migrates before serving. Seeing it
+  # as "exited (0)" is expected.
+  migrate:
+    build:
+      context: ./apps/api
+      target: prod
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build:
       context: ./apps/api
@@ -44,15 +67,17 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://zug:zug@postgres:5432/zug}
+      DATABASE_URL: *database-url
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-10}
+      WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-60}
       # The API reports the active dataset on /api/v1/health.
       GTFS_FEED_ID: ${GTFS_FEED_ID:-fv_free}
-    ports:
-      - "${API_PORT:-8000}:8000"
+    expose:
+      - "8000"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -79,10 +104,14 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://zug:zug@postgres:5432/zug}
+      DATABASE_URL: *database-url
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-10}
-      GTFS_STATIC_URL: ${GTFS_STATIC_URL:-}
+      WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-60}
+      # Public and keyless. Without it the worker imports nothing and the map
+      # stays empty, so it defaults to the feed rather than to nothing.
+      GTFS_STATIC_URL: ${GTFS_STATIC_URL:-https://download.gtfs.de/germany/fv_free/latest.zip}
+      # Deliberately empty by default: polling it costs ~75 GB/day of ingress
+      # from Phase 6 on, which a host should opt into.
       GTFS_REALTIME_URL: ${GTFS_REALTIME_URL:-}
       GTFS_FEED_ID: ${GTFS_FEED_ID:-fv_free}
       GTFS_DATASET_RETENTION: ${GTFS_DATASET_RETENTION:-1}
@@ -93,6 +122,8 @@ services:
     volumes:
       - ./data:/data
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -110,11 +141,22 @@ services:
       NODE_ENV: production
       API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-    ports:
-      - "${WEB_PORT:-3000}:3000"
+    expose:
+      - "3000"
     depends_on:
       api:
         condition: service_started
+    healthcheck:
+      # The image has no curl; Node's fetch does the same job.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:3000/').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
 volumes:

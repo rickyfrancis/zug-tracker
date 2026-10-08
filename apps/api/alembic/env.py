@@ -7,7 +7,7 @@ migrations use the same configuration as the running services.
 import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -53,6 +53,10 @@ def do_run_migrations(connection: Connection) -> None:
     )
 
     with context.begin_transaction():
+        # The baseline assumes PostGIS. infra/postgres/init creates it on a new
+        # volume, but a deployment cannot rely on that bind mount, so make sure
+        # here too. Idempotent; the compose user is the database superuser.
+        connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
         context.run_migrations()
 
 
